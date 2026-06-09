@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="AI Chat" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>AI Chat</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="pwa-icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+
+    <aside id="sidebar" class="sidebar" aria-label="对话侧边栏">
+      <div class="sidebar-header">
+        <div class="brand">
+          <span class="app-mark" aria-hidden="true"></span>
+          <span>AI Chat</span>
+        </div>
+        <button id="closeDrawerBtn" class="icon-button mobile-only" type="button" aria-label="关闭菜单">×</button>
+      </div>
+
+      <button id="newChatBtn" class="new-chat-button" type="button">
+        <span aria-hidden="true">+</span>
+        新对话
+      </button>
+
+      <nav class="conversation-section" aria-label="历史对话">
+        <div class="section-label">本机对话</div>
+        <div id="conversationList" class="conversation-list"></div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="clearChatBtn" class="sidebar-action" type="button">清空当前对话</button>
+        <button id="settingsBtn" class="sidebar-action" type="button">设置</button>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="mobile-header">
+        <button id="openDrawerBtn" class="icon-button" type="button" aria-label="打开菜单">☰</button>
+        <div class="mobile-title">
+          <span class="app-mark small" aria-hidden="true"></span>
+          <span>AI Chat</span>
+        </div>
+        <button id="mobileSettingsBtn" class="icon-button" type="button" aria-label="打开设置">⚙</button>
+      </header>
+
+      <header class="chat-topbar">
+        <div>
+          <div class="topbar-title">AI Chat</div>
+          <button id="modelShortcutBtn" class="model-pill" type="button" aria-label="打开模型设置"></button>
+        </div>
+        <span class="backend-status online">只保存在本机</span>
+      </header>
+
+      <section id="chatScroll" class="chat-scroll" aria-live="polite">
+        <div id="emptyState" class="empty-state">
+          <span class="app-mark large" aria-hidden="true"></span>
+          <h1>今天想聊点什么？</h1>
+          <div class="prompt-chips" aria-label="示例问题">
+            <button class="prompt-chip" type="button">帮我整理一份学习计划</button>
+            <button class="prompt-chip" type="button">把这个概念解释得简单点</button>
+            <button class="prompt-chip" type="button">帮我想 10 个短视频选题</button>
+          </div>
+        </div>
+
+        <div id="messageList" class="message-list"></div>
+      </section>
+
+      <section class="composer-wrap" aria-label="消息输入框">
+        <form id="composerForm" class="composer">
+          <button id="composerSettingsBtn" class="composer-tool" type="button" aria-label="打开设置">⚙</button>
+          <label class="sr-only" for="messageInput">输入消息</label>
+          <textarea id="messageInput" rows="1" placeholder="给 AI Chat 发消息"></textarea>
+          <button id="sendBtn" class="send-button" type="submit" aria-label="发送消息">↑</button>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div id="settingsModal" class="modal-layer" hidden>
+    <div class="modal-backdrop"></div>
+    <section class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-header">
+        <h2 id="settingsTitle">设置</h2>
+        <button id="closeSettingsBtn" class="icon-button" type="button" aria-label="关闭设置">×</button>
+      </div>
+
+      <p class="security-note">
+        这是纯手机本地版。API Key 和聊天记录只保存在当前浏览器 localStorage，不会上传到你的电脑后台或任何同步服务器。
+      </p>
+
+      <p class="security-note">
+        iPhone 推荐用 Safari 打开 HTTPS 网址后选择“分享”→“添加到主屏幕”。添加后，即使电脑关掉，也可以从手机桌面继续打开。
+      </p>
+
+      <div class="field">
+        <label for="providerSelect">服务商</label>
+        <select id="providerSelect">
+          <option value="deepseek">DeepSeek</option>
+          <option value="custom">Custom OpenAI-Compatible</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="apiKeyInput">API Key</label>
+        <div class="inline-field">
+          <input id="apiKeyInput" type="password" autocomplete="off" placeholder="输入你的 API Key" />
+          <button id="toggleApiKeyBtn" class="secondary-button" type="button">显示</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="baseUrlInput">Base URL</label>
+        <input id="baseUrlInput" type="url" placeholder="https://api.deepseek.com" />
+      </div>
+
+      <div id="quickModelOptions" class="quick-models" aria-label="快捷模型">
+        <button class="model-option" type="button" data-model="deepseek-v4-flash">deepseek-v4-flash</button>
+        <button class="model-option" type="button" data-model="deepseek-v4-pro">deepseek-v4-pro</button>
+      </div>
+
+      <div class="field">
+        <label for="modelInput">模型</label>
+        <input id="modelInput" type="text" placeholder="deepseek-v4-flash" />
+      </div>
+
+      <div class="data-actions" aria-label="本地备份">
+        <button id="exportDataBtn" class="secondary-button" type="button">导出本机聊天</button>
+        <label class="secondary-button file-button" for="importDataInput">导入备份</label>
+        <input id="importDataInput" class="sr-only" type="file" accept="application/json" />
+      </div>
+
+      <div class="modal-actions">
+        <button id="clearAllDataBtn" class="secondary-button danger" type="button">清空本机聊天</button>
+        <button id="clearApiKeyBtn" class="secondary-button danger" type="button">清除 API Key</button>
+        <button id="cancelSettingsBtn" class="secondary-button" type="button">取消</button>
+        <button id="saveSettingsBtn" class="primary-button" type="button">保存</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="toastContainer" class="toast-container" aria-live="assertive"></div>
+</body>
+</html>
