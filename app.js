@@ -98,6 +98,7 @@ function bindEvents() {
   });
 
   els.messageInput.addEventListener("input", autoResizeTextarea);
+  els.modelInput.addEventListener("input", updateModelOptionHighlight);
   els.messageInput.addEventListener("keydown", function (event) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -132,7 +133,7 @@ function bindEvents() {
     const button = event.target.closest("[data-model]");
     if (!button) return;
     els.modelInput.value = button.dataset.model;
-    renderSettings();
+    updateModelOptionHighlight();
   });
 
   els.saveSettingsBtn.addEventListener("click", function () {
@@ -456,13 +457,19 @@ function renderSettings() {
   els.modelInput.value = settings.model || "";
   els.quickModelOptions.hidden = !isDeepSeek;
 
-  document.querySelectorAll(".model-option").forEach(function (button) {
-    button.classList.toggle("active", button.dataset.model === els.modelInput.value);
-  });
+  updateModelOptionHighlight();
 
   if (isDeepSeek && !els.modelInput.value.trim()) {
     els.modelInput.value = "deepseek-v4-flash";
+    updateModelOptionHighlight();
   }
+}
+
+function updateModelOptionHighlight() {
+  const selectedModel = els.modelInput.value.trim();
+  document.querySelectorAll(".model-option").forEach(function (button) {
+    button.classList.toggle("active", button.dataset.model === selectedModel);
+  });
 }
 
 function openSettings() {
