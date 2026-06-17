@@ -497,6 +497,12 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.search-results {
+  color: #31506f;
+  background: #f5f9ff;
+  border-color: #dbeafe;
+}
+
 .loading-dots {
   display: inline-flex;
   align-items: center;
@@ -587,6 +593,18 @@ button:disabled {
 .composer-tool:hover {
   color: var(--text);
   background: #edf1f5;
+}
+
+.composer-tool.active,
+.web-search-toggle.active {
+  color: #0f3d78;
+  background: #e8f2ff;
+  border: 1px solid #bfdbfe;
+}
+
+.web-search-toggle {
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .send-button {

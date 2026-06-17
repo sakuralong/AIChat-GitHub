@@ -6,7 +6,8 @@ const DEFAULT_SETTINGS = {
   provider: "deepseek",
   apiKey: "",
   baseUrl: "https://api.deepseek.com",
-  model: "deepseek-v4-flash"
+  model: "deepseek-v4-flash",
+  webSearchEnabled: false
 };
 
 const state = {
@@ -49,6 +50,7 @@ function cacheElements() {
   els.mobileSettingsBtn = document.getElementById("mobileSettingsBtn");
   els.modelShortcutBtn = document.getElementById("modelShortcutBtn");
   els.composerSettingsBtn = document.getElementById("composerSettingsBtn");
+  els.webSearchToggleBtn = document.getElementById("webSearchToggleBtn");
   els.conversationList = document.getElementById("conversationList");
   els.chatScroll = document.getElementById("chatScroll");
   els.emptyState = document.getElementById("emptyState");
@@ -88,6 +90,7 @@ function bindEvents() {
   els.mobileSettingsBtn.addEventListener("click", openSettings);
   els.modelShortcutBtn.addEventListener("click", openSettings);
   els.composerSettingsBtn.addEventListener("click", openSettings);
+  els.webSearchToggleBtn.addEventListener("click", toggleWebSearch);
 
   els.composerForm.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -137,7 +140,8 @@ function bindEvents() {
       provider: els.providerSelect.value === "custom" ? "custom" : "deepseek",
       apiKey: els.apiKeyInput.value.trim(),
       baseUrl: normalizeBaseUrl(els.baseUrlInput.value.trim()),
-      model: els.modelInput.value.trim()
+      model: els.modelInput.value.trim(),
+      webSearchEnabled: state.settings.webSearchEnabled === true
     };
 
     if (state.settings.provider === "deepseek") {
@@ -213,7 +217,8 @@ function loadSettings() {
       provider: parsed.provider === "custom" ? "custom" : "deepseek",
       apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
       baseUrl: typeof parsed.baseUrl === "string" && parsed.baseUrl ? normalizeBaseUrl(parsed.baseUrl) : DEFAULT_SETTINGS.baseUrl,
-      model: typeof parsed.model === "string" && parsed.model ? parsed.model : DEFAULT_SETTINGS.model
+      model: typeof parsed.model === "string" && parsed.model ? parsed.model : DEFAULT_SETTINGS.model,
+      webSearchEnabled: parsed.webSearchEnabled === true
     });
   } catch (error) {
     addToast("设置读取失败，已使用默认设置。", "error");
@@ -347,8 +352,16 @@ function renderApp() {
   renderSidebar();
   renderMessages();
   renderSettings();
+  renderWebSearchToggle();
   els.modelShortcutBtn.textContent = state.settings.model || "选择模型";
   els.sendBtn.disabled = state.loading || els.messageInput.value.trim().length === 0;
+}
+
+function renderWebSearchToggle() {
+  const enabled = state.settings.webSearchEnabled === true;
+  els.webSearchToggleBtn.classList.toggle("active", enabled);
+  els.webSearchToggleBtn.setAttribute("aria-pressed", String(enabled));
+  els.webSearchToggleBtn.title = enabled ? "联网搜索已开启" : "联网搜索已关闭";
 }
 
 function renderSidebar() {
@@ -467,6 +480,13 @@ function closeSettings() {
   renderSettings();
 }
 
+function toggleWebSearch() {
+  state.settings.webSearchEnabled = state.settings.webSearchEnabled !== true;
+  saveSettings();
+  renderWebSearchToggle();
+  addToast(state.settings.webSearchEnabled ? "联网搜索已开启。" : "联网搜索已关闭。", "success");
+}
+
 function openDrawer() {
   els.sidebar.classList.add("open");
   els.drawerBackdrop.hidden = false;
@@ -522,14 +542,18 @@ async function handleSend() {
   renderApp();
 
   try {
-    const apiMessages = buildApiMessages(conversation.messages);
+    const webSearchContext = state.settings.webSearchEnabled === true
+      ? await callWebSearch(content)
+      : null;
+    const apiMessages = buildApiMessages(conversation.messages, webSearchContext);
     const data = await callChatApi(apiMessages);
     const assistant = safeGetAssistantContent(data);
 
     conversation.messages.push({
       role: "assistant",
       content: assistant.content,
-      reasoningContent: assistant.reasoningContent
+      reasoningContent: assistant.reasoningContent,
+      searchContent: webSearchContext ? webSearchContext.displayContent : ""
     });
     conversation.updatedAt = Date.now();
     saveConversations();
@@ -550,7 +574,7 @@ async function handleSend() {
   }
 }
 
-function buildApiMessages(conversationMessages) {
+function buildApiMessages(conversationMessages, webSearchContext) {
   const latestMessages = conversationMessages.slice(-20).map(function (message) {
     return {
       role: message.role,
@@ -558,9 +582,161 @@ function buildApiMessages(conversationMessages) {
     };
   });
 
-  return [
+  const apiMessages = [
     { role: "system", content: DEFAULT_SYSTEM_PROMPT }
-  ].concat(latestMessages);
+  ];
+
+  if (webSearchContext) {
+    apiMessages.push({
+      role: "system",
+      content: "用户已开启联网搜索。请优先参考下面的公开搜索摘要回答；如果搜索摘要不足或可能过时，请明确说明不确定。\n\n" + webSearchContext.modelContent
+    });
+  }
+
+  return apiMessages.concat(latestMessages);
+}
+
+async function callWebSearch(query) {
+  addToast("正在联网搜索...", "info");
+
+  const searchTasks = [
+    fetchDuckDuckGoSearch(query),
+    fetchWikipediaSearch(query)
+  ];
+
+  const settled = await Promise.allSettled(searchTasks);
+  const results = settled
+    .filter(function (item) {
+      return item.status === "fulfilled" && Array.isArray(item.value);
+    })
+    .flatMap(function (item) {
+      return item.value;
+    })
+    .filter(function (item) {
+      return item && item.text;
+    });
+
+  if (results.length === 0) {
+    addToast("联网搜索没有拿到可用摘要，已用普通模式回答。", "error");
+    return null;
+  }
+
+  const lines = [
+    "联网搜索结果",
+    "搜索时间：" + new Date().toLocaleString(),
+    "搜索词：" + query,
+    ""
+  ];
+
+  results.slice(0, 8).forEach(function (item, index) {
+    lines.push((index + 1) + ". " + item.title);
+    lines.push("来源：" + item.source);
+    if (item.url) {
+      lines.push("链接：" + item.url);
+    }
+    lines.push("摘要：" + item.text);
+    lines.push("");
+  });
+
+  const content = lines.join("\n").trim().slice(0, 8000);
+  return {
+    modelContent: content,
+    displayContent: content
+  };
+}
+
+async function fetchDuckDuckGoSearch(query) {
+  const url = "https://api.duckduckgo.com/?q=" +
+    encodeURIComponent(query) +
+    "&format=json&no_html=1&skip_disambig=1";
+  const data = await fetchJsonWithTimeout(url, 12000);
+  const results = [];
+
+  if (data.AbstractText) {
+    results.push({
+      source: "DuckDuckGo Instant Answer",
+      title: data.Heading || "DuckDuckGo 摘要",
+      url: data.AbstractURL || "",
+      text: compactSearchText(data.AbstractText, 900)
+    });
+  }
+
+  flattenDuckDuckGoTopics(data.RelatedTopics || []).slice(0, 4).forEach(function (topic) {
+    if (!topic.Text) return;
+    results.push({
+      source: "DuckDuckGo Related Topic",
+      title: topic.Text.split(" - ")[0].slice(0, 90) || "相关结果",
+      url: topic.FirstURL || "",
+      text: compactSearchText(topic.Text, 700)
+    });
+  });
+
+  return results;
+}
+
+async function fetchWikipediaSearch(query) {
+  const url = "https://zh.wikipedia.org/w/api.php?action=query&list=search&srlimit=5&format=json&origin=*&srsearch=" +
+    encodeURIComponent(query);
+  const data = await fetchJsonWithTimeout(url, 12000);
+  const items = data && data.query && Array.isArray(data.query.search)
+    ? data.query.search
+    : [];
+
+  return items.map(function (item) {
+    return {
+      source: "中文 Wikipedia",
+      title: item.title || "Wikipedia 条目",
+      url: "https://zh.wikipedia.org/wiki/" + encodeURIComponent(String(item.title || "").replace(/ /g, "_")),
+      text: compactSearchText(stripSearchMarkup(item.snippet || ""), 700)
+    };
+  });
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(function () {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json"
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error("搜索请求失败：" + response.status);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function flattenDuckDuckGoTopics(topics) {
+  const output = [];
+  topics.forEach(function (topic) {
+    if (Array.isArray(topic.Topics)) {
+      output.push.apply(output, flattenDuckDuckGoTopics(topic.Topics));
+      return;
+    }
+    output.push(topic);
+  });
+  return output;
+}
+
+function stripSearchMarkup(value) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#039;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
 }
 
 async function callChatApi(messages) {
@@ -641,6 +817,22 @@ function createMessageElement(message) {
 
   const block = document.createElement("div");
   block.className = "message-block";
+
+  if (message.searchContent) {
+    const details = document.createElement("details");
+    details.className = "reasoning search-results";
+
+    const summary = document.createElement("summary");
+    summary.textContent = "联网搜索结果";
+
+    const searchContent = document.createElement("div");
+    searchContent.className = "reasoning-content";
+    searchContent.textContent = message.searchContent;
+
+    details.appendChild(summary);
+    details.appendChild(searchContent);
+    block.appendChild(details);
+  }
 
   if (message.reasoningContent) {
     const details = document.createElement("details");
@@ -790,7 +982,9 @@ function isValidConversation(conversation) {
 function isValidMessage(message) {
   return message &&
     (message.role === "user" || message.role === "assistant") &&
-    typeof message.content === "string";
+    typeof message.content === "string" &&
+    (message.searchContent === undefined || typeof message.searchContent === "string") &&
+    (message.reasoningContent === undefined || typeof message.reasoningContent === "string");
 }
 
 function sortConversations(conversations) {
@@ -811,6 +1005,13 @@ function normalizeBaseUrl(baseUrl) {
 function compactErrorText(text) {
   if (!text) return "没有错误正文。";
   return text.replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function compactSearchText(text, maxLength) {
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
 }
 
 function scrollToBottom() {

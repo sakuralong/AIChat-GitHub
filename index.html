@@ -78,6 +78,7 @@
       <section class="composer-wrap" aria-label="消息输入框">
         <form id="composerForm" class="composer">
           <button id="composerSettingsBtn" class="composer-tool" type="button" aria-label="打开设置">⚙</button>
+          <button id="webSearchToggleBtn" class="composer-tool web-search-toggle" type="button" aria-label="切换联网搜索" aria-pressed="false" title="联网搜索">网</button>
           <label class="sr-only" for="messageInput">输入消息</label>
           <textarea id="messageInput" rows="1" placeholder="给 AI Chat 发消息"></textarea>
           <button id="sendBtn" class="send-button" type="submit" aria-label="发送消息">↑</button>
@@ -100,6 +101,10 @@
 
       <p class="security-note">
         iPhone 推荐用 Safari 打开 HTTPS 网址后选择“分享”→“添加到主屏幕”。添加后，即使电脑关掉，也可以从手机桌面继续打开。
+      </p>
+
+      <p class="security-note">
+        “联网搜索”是轻量模式：会把你的问题发送到 DuckDuckGo Instant Answer 和中文 Wikipedia 获取公开摘要，再把摘要发给模型。它不需要额外 Key，但不是完整搜索引擎。
       </p>
 
       <div class="field">
