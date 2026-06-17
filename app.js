@@ -2,8 +2,9 @@ const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant. Answer clearly and n
 const SETTINGS_KEY = "seekchat.settings";
 const CONVERSATIONS_KEY = "seekchat.conversations";
 const MEMORY_KEY = "seekchat.memory";
-const MEMORY_MIN_MESSAGES = 10;
-const MEMORY_UPDATE_STEP = 6;
+const MEMORY_MIN_CHARS = 6000;
+const MEMORY_UPDATE_CHARS = 3000;
+const MEMORY_SUMMARY_SOURCE_CHARS = 9000;
 
 const DEFAULT_SETTINGS = {
   provider: "deepseek",
@@ -17,7 +18,8 @@ const DEFAULT_SETTINGS = {
 const DEFAULT_MEMORY = {
   summary: "",
   updatedAt: 0,
-  sourceMessageCount: 0
+  sourceMessageCount: 0,
+  sourceCharCount: 0
 };
 
 const state = {
@@ -273,7 +275,8 @@ function loadMemory() {
     return {
       summary: typeof parsed.summary === "string" ? parsed.summary : "",
       updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0,
-      sourceMessageCount: typeof parsed.sourceMessageCount === "number" ? parsed.sourceMessageCount : 0
+      sourceMessageCount: typeof parsed.sourceMessageCount === "number" ? parsed.sourceMessageCount : 0,
+      sourceCharCount: typeof parsed.sourceCharCount === "number" ? parsed.sourceCharCount : 0
     };
   } catch (error) {
     addToast("本机长记忆读取失败，已临时关闭旧摘要。", "error");
@@ -528,7 +531,9 @@ function renderSettings() {
 
 function renderMemoryStatus() {
   if (!state.memory.summary) {
-    els.memoryStatusText.textContent = "本机长记忆：未生成。长对话会在回复后自动总结。";
+    els.memoryStatusText.textContent = "本机长记忆：未生成。当前聊天累计约 " +
+      MEMORY_MIN_CHARS +
+      " 字后会自动总结。";
     els.memoryStatusText.classList.remove("online");
     return;
   }
@@ -537,6 +542,9 @@ function renderMemoryStatus() {
     state.memory.summary.length +
     " 字，更新时间 " +
     formatTime(state.memory.updatedAt) +
+    "。之后每新增约 " +
+    MEMORY_UPDATE_CHARS +
+    " 字自动更新一次" +
     "。";
   els.memoryStatusText.classList.add("online");
 }
@@ -690,36 +698,33 @@ function buildApiMessages(conversationMessages, webSearchContext) {
 async function maybeUpdateMemory(conversation) {
   if (state.settings.memoryEnabled === false || !conversation) return;
   if (!state.settings.apiKey || !state.settings.baseUrl || !state.settings.model) return;
-  if (conversation.messages.length < MEMORY_MIN_MESSAGES) return;
 
-  const previousCount = state.memory.sourceMessageCount || 0;
-  if (conversation.messages.length - previousCount < MEMORY_UPDATE_STEP) return;
+  const currentCharCount = getAllConversationCharCount();
+  if (currentCharCount < MEMORY_MIN_CHARS) return;
+
+  const previousCharCount = Math.min(state.memory.sourceCharCount || 0, currentCharCount);
+  if (previousCharCount > 0 && currentCharCount - previousCharCount < MEMORY_UPDATE_CHARS) return;
+  if (previousCharCount === 0 && state.memory.summary && currentCharCount < MEMORY_MIN_CHARS + MEMORY_UPDATE_CHARS) return;
 
   try {
-    addToast("正在自动更新本机长记忆...", "info");
     const summary = await summarizeMemory(conversation);
     if (!summary) return;
 
     state.memory = {
       summary,
       updatedAt: Date.now(),
-      sourceMessageCount: conversation.messages.length
+      sourceMessageCount: conversation.messages.length,
+      sourceCharCount: currentCharCount
     };
     saveMemory();
     renderSettings();
-    addToast("本机长记忆已更新。", "success");
   } catch (error) {
-    addToast("本机长记忆更新失败，聊天已正常保存。", "error");
+    console.warn("Local memory update failed:", error);
   }
 }
 
 async function summarizeMemory(conversation) {
-  const recentMessages = conversation.messages.slice(-16).map(function (message) {
-    return {
-      role: message.role,
-      content: message.content
-    };
-  });
+  const recentMessages = getRecentMemorySourceMessages(conversation);
 
   const messages = [
     {
@@ -741,6 +746,50 @@ async function summarizeMemory(conversation) {
   const data = await callChatApi(messages);
   const assistant = safeGetAssistantContent(data);
   return assistant.content.trim().slice(0, 1600);
+}
+
+function getConversationCharCount(conversation) {
+  if (!conversation || !Array.isArray(conversation.messages)) return 0;
+
+  return conversation.messages.reduce(function (total, message) {
+    if (!message || typeof message.content !== "string") return total;
+    return total + message.content.trim().length;
+  }, 0);
+}
+
+function getAllConversationCharCount() {
+  return state.conversations.reduce(function (total, conversation) {
+    return total + getConversationCharCount(conversation);
+  }, 0);
+}
+
+function getRecentMemorySourceMessages(conversation) {
+  const source = [];
+  let usedChars = 0;
+  const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message.content !== "string") continue;
+
+    const content = message.content.trim();
+    if (!content) continue;
+
+    const remaining = MEMORY_SUMMARY_SOURCE_CHARS - usedChars;
+    if (remaining <= 0) break;
+
+    const clipped = content.length > remaining
+      ? content.slice(content.length - remaining)
+      : content;
+
+    source.unshift({
+      role: message.role,
+      content: clipped
+    });
+    usedChars += clipped.length;
+  }
+
+  return source;
 }
 
 async function callWebSearch(query) {
@@ -1088,7 +1137,8 @@ function importLocalData(event) {
         state.memory = {
           summary: parsed.memory.summary,
           updatedAt: typeof parsed.memory.updatedAt === "number" ? parsed.memory.updatedAt : Date.now(),
-          sourceMessageCount: typeof parsed.memory.sourceMessageCount === "number" ? parsed.memory.sourceMessageCount : 0
+          sourceMessageCount: typeof parsed.memory.sourceMessageCount === "number" ? parsed.memory.sourceMessageCount : 0,
+          sourceCharCount: typeof parsed.memory.sourceCharCount === "number" ? parsed.memory.sourceCharCount : 0
         };
         saveMemory();
       }
