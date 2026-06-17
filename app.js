@@ -179,6 +179,10 @@ function bindEvents() {
   els.cancelSettingsBtn.addEventListener("click", closeSettings);
 
   els.clearApiKeyBtn.addEventListener("click", function () {
+    if (!confirm("确定要清除当前浏览器里的 API Key 吗？清除后需要重新输入才能聊天。")) {
+      return;
+    }
+
     els.apiKeyInput.value = "";
     state.settings.apiKey = "";
     saveSettings();
@@ -196,7 +200,7 @@ function bindEvents() {
   });
 
   els.clearAllDataBtn.addEventListener("click", function () {
-    if (!confirm("确定要清空当前浏览器里的所有聊天记录吗？这个操作不能撤销。")) {
+    if (!confirm("确定要清空当前浏览器里的所有聊天记录和长记忆吗？这个操作不能撤销。")) {
       return;
     }
 
@@ -380,6 +384,14 @@ function deleteConversation(id) {
     return;
   }
 
+  const conversation = state.conversations.find(function (item) {
+    return item.id === id;
+  });
+  const title = conversation && conversation.title ? conversation.title : "这条对话";
+  if (!confirm("确定要删除「" + title + "」吗？这个操作不能撤销。")) {
+    return;
+  }
+
   state.conversations = state.conversations.filter(function (item) {
     return item.id !== id;
   });
@@ -402,6 +414,11 @@ function clearCurrentConversation() {
 
   const conversation = getCurrentConversation();
   if (!conversation) return;
+  if (conversation.messages.length === 0) return;
+
+  if (!confirm("确定要清空当前对话吗？这个操作不能撤销。")) {
+    return;
+  }
 
   conversation.messages = [];
   conversation.title = "新对话";
