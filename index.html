@@ -108,6 +108,13 @@
         “联网搜索”是轻量模式：会把你的问题发送到 DuckDuckGo Instant Answer 和中文 Wikipedia 获取公开摘要，再把摘要发给模型。它不需要额外 Key，但不是完整搜索引擎。
       </p>
 
+      <label class="consent-row" for="memoryEnabledInput">
+        <input id="memoryEnabledInput" type="checkbox" />
+        <span>开启本机长记忆：长对话会自动总结成记忆摘要，保存在当前浏览器 localStorage，并在之后的聊天中自动带上。</span>
+      </label>
+
+      <p id="memoryStatusText" class="sync-note">本机长记忆：未生成</p>
+
       <div class="field">
         <label for="providerSelect">服务商</label>
         <select id="providerSelect">
@@ -144,6 +151,7 @@
         <label class="secondary-button file-button" for="importDataInput">导入备份</label>
         <input id="importDataInput" class="sr-only" type="file" accept="application/json" />
         <button id="clearApiKeyBtn" class="secondary-button danger" type="button">清除 API Key</button>
+        <button id="clearMemoryBtn" class="secondary-button danger" type="button">清空长记忆</button>
         <button id="clearAllDataBtn" class="secondary-button danger" type="button">清空本机聊天</button>
       </div>
       </div>

@@ -1,20 +1,31 @@
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant. Answer clearly and naturally.";
 const SETTINGS_KEY = "seekchat.settings";
 const CONVERSATIONS_KEY = "seekchat.conversations";
+const MEMORY_KEY = "seekchat.memory";
+const MEMORY_MIN_MESSAGES = 10;
+const MEMORY_UPDATE_STEP = 6;
 
 const DEFAULT_SETTINGS = {
   provider: "deepseek",
   apiKey: "",
   baseUrl: "https://api.deepseek.com",
   model: "deepseek-v4-flash",
-  webSearchEnabled: false
+  webSearchEnabled: false,
+  memoryEnabled: true
+};
+
+const DEFAULT_MEMORY = {
+  summary: "",
+  updatedAt: 0,
+  sourceMessageCount: 0
 };
 
 const state = {
   settings: {},
   conversations: [],
   currentConversationId: null,
-  loading: false
+  loading: false,
+  memory: {}
 };
 
 const els = {};
@@ -25,6 +36,7 @@ function init() {
   cacheElements();
   setDisplayModeClass();
   state.settings = loadSettings();
+  state.memory = loadMemory();
   state.conversations = loadConversations();
 
   if (state.conversations.length > 0) {
@@ -66,9 +78,12 @@ function cacheElements() {
   els.baseUrlInput = document.getElementById("baseUrlInput");
   els.modelInput = document.getElementById("modelInput");
   els.quickModelOptions = document.getElementById("quickModelOptions");
+  els.memoryEnabledInput = document.getElementById("memoryEnabledInput");
+  els.memoryStatusText = document.getElementById("memoryStatusText");
   els.saveSettingsBtn = document.getElementById("saveSettingsBtn");
   els.cancelSettingsBtn = document.getElementById("cancelSettingsBtn");
   els.clearApiKeyBtn = document.getElementById("clearApiKeyBtn");
+  els.clearMemoryBtn = document.getElementById("clearMemoryBtn");
   els.clearAllDataBtn = document.getElementById("clearAllDataBtn");
   els.exportDataBtn = document.getElementById("exportDataBtn");
   els.importDataInput = document.getElementById("importDataInput");
@@ -142,7 +157,8 @@ function bindEvents() {
       apiKey: els.apiKeyInput.value.trim(),
       baseUrl: normalizeBaseUrl(els.baseUrlInput.value.trim()),
       model: els.modelInput.value.trim(),
-      webSearchEnabled: state.settings.webSearchEnabled === true
+      webSearchEnabled: state.settings.webSearchEnabled === true,
+      memoryEnabled: els.memoryEnabledInput.checked === true
     };
 
     if (state.settings.provider === "deepseek") {
@@ -167,6 +183,16 @@ function bindEvents() {
     addToast("API Key 已从本机清除。", "success");
   });
 
+  els.clearMemoryBtn.addEventListener("click", function () {
+    if (!confirm("确定要清空本机长记忆吗？聊天记录不会被删除。")) {
+      return;
+    }
+    state.memory = Object.assign({}, DEFAULT_MEMORY);
+    saveMemory();
+    renderSettings();
+    addToast("本机长记忆已清空。", "success");
+  });
+
   els.clearAllDataBtn.addEventListener("click", function () {
     if (!confirm("确定要清空当前浏览器里的所有聊天记录吗？这个操作不能撤销。")) {
       return;
@@ -174,9 +200,11 @@ function bindEvents() {
 
     state.conversations = [];
     createConversation(false);
+    state.memory = Object.assign({}, DEFAULT_MEMORY);
     saveConversations();
+    saveMemory();
     renderApp();
-    addToast("本机聊天记录已清空。", "success");
+    addToast("本机聊天记录和长记忆已清空。", "success");
   });
 
   els.exportDataBtn.addEventListener("click", exportLocalData);
@@ -219,7 +247,8 @@ function loadSettings() {
       apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
       baseUrl: typeof parsed.baseUrl === "string" && parsed.baseUrl ? normalizeBaseUrl(parsed.baseUrl) : DEFAULT_SETTINGS.baseUrl,
       model: typeof parsed.model === "string" && parsed.model ? parsed.model : DEFAULT_SETTINGS.model,
-      webSearchEnabled: parsed.webSearchEnabled === true
+      webSearchEnabled: parsed.webSearchEnabled === true,
+      memoryEnabled: parsed.memoryEnabled !== false
     });
   } catch (error) {
     addToast("设置读取失败，已使用默认设置。", "error");
@@ -232,6 +261,36 @@ function saveSettings() {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
   } catch (error) {
     addToast("设置无法保存到本机 localStorage。", "error");
+  }
+}
+
+function loadMemory() {
+  try {
+    const raw = localStorage.getItem(MEMORY_KEY);
+    if (!raw) return Object.assign({}, DEFAULT_MEMORY);
+
+    const parsed = JSON.parse(raw);
+    return {
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0,
+      sourceMessageCount: typeof parsed.sourceMessageCount === "number" ? parsed.sourceMessageCount : 0
+    };
+  } catch (error) {
+    addToast("本机长记忆读取失败，已临时关闭旧摘要。", "error");
+    return Object.assign({}, DEFAULT_MEMORY);
+  }
+}
+
+function saveMemory() {
+  try {
+    if (!state.memory.summary) {
+      localStorage.removeItem(MEMORY_KEY);
+      return;
+    }
+
+    localStorage.setItem(MEMORY_KEY, JSON.stringify(state.memory));
+  } catch (error) {
+    addToast("本机长记忆无法保存到 localStorage。", "error");
   }
 }
 
@@ -456,6 +515,8 @@ function renderSettings() {
   els.baseUrlInput.readOnly = isDeepSeek;
   els.modelInput.value = settings.model || "";
   els.quickModelOptions.hidden = !isDeepSeek;
+  els.memoryEnabledInput.checked = settings.memoryEnabled !== false;
+  renderMemoryStatus();
 
   updateModelOptionHighlight();
 
@@ -463,6 +524,21 @@ function renderSettings() {
     els.modelInput.value = "deepseek-v4-flash";
     updateModelOptionHighlight();
   }
+}
+
+function renderMemoryStatus() {
+  if (!state.memory.summary) {
+    els.memoryStatusText.textContent = "本机长记忆：未生成。长对话会在回复后自动总结。";
+    els.memoryStatusText.classList.remove("online");
+    return;
+  }
+
+  els.memoryStatusText.textContent = "本机长记忆：已生成，约 " +
+    state.memory.summary.length +
+    " 字，更新时间 " +
+    formatTime(state.memory.updatedAt) +
+    "。";
+  els.memoryStatusText.classList.add("online");
 }
 
 function updateModelOptionHighlight() {
@@ -565,6 +641,7 @@ async function handleSend() {
     conversation.updatedAt = Date.now();
     saveConversations();
     renderApp();
+    maybeUpdateMemory(conversation);
   } catch (error) {
     const message = error && error.message ? error.message : "请求失败。";
     conversation.messages.push({
@@ -593,6 +670,13 @@ function buildApiMessages(conversationMessages, webSearchContext) {
     { role: "system", content: DEFAULT_SYSTEM_PROMPT }
   ];
 
+  if (state.settings.memoryEnabled !== false && state.memory.summary) {
+    apiMessages.push({
+      role: "system",
+      content: "以下是本机保存的长期记忆摘要。它可能不完整或过时，请把它当作背景参考，不要把它逐字展示给用户。\n\n" + state.memory.summary
+    });
+  }
+
   if (webSearchContext) {
     apiMessages.push({
       role: "system",
@@ -601,6 +685,62 @@ function buildApiMessages(conversationMessages, webSearchContext) {
   }
 
   return apiMessages.concat(latestMessages);
+}
+
+async function maybeUpdateMemory(conversation) {
+  if (state.settings.memoryEnabled === false || !conversation) return;
+  if (!state.settings.apiKey || !state.settings.baseUrl || !state.settings.model) return;
+  if (conversation.messages.length < MEMORY_MIN_MESSAGES) return;
+
+  const previousCount = state.memory.sourceMessageCount || 0;
+  if (conversation.messages.length - previousCount < MEMORY_UPDATE_STEP) return;
+
+  try {
+    addToast("正在自动更新本机长记忆...", "info");
+    const summary = await summarizeMemory(conversation);
+    if (!summary) return;
+
+    state.memory = {
+      summary,
+      updatedAt: Date.now(),
+      sourceMessageCount: conversation.messages.length
+    };
+    saveMemory();
+    renderSettings();
+    addToast("本机长记忆已更新。", "success");
+  } catch (error) {
+    addToast("本机长记忆更新失败，聊天已正常保存。", "error");
+  }
+}
+
+async function summarizeMemory(conversation) {
+  const recentMessages = conversation.messages.slice(-16).map(function (message) {
+    return {
+      role: message.role,
+      content: message.content
+    };
+  });
+
+  const messages = [
+    {
+      role: "system",
+      content: "你是本地长期记忆整理器。请把用户长期有用的信息压缩成简洁中文记忆摘要，用要点列出。只保留未来对话可能有用的信息，例如用户偏好、项目背景、重要约定、常用配置、未完成任务。不要保存一次性闲聊、敏感密钥、完整 API Key、银行卡、密码。控制在 1200 字以内。"
+    },
+    {
+      role: "user",
+      content: "已有记忆摘要：\n" +
+        (state.memory.summary || "（无）") +
+        "\n\n最近对话：\n" +
+        recentMessages.map(function (message) {
+          return message.role + ": " + message.content;
+        }).join("\n\n") +
+        "\n\n请输出更新后的记忆摘要。"
+    }
+  ];
+
+  const data = await callChatApi(messages);
+  const assistant = safeGetAssistantContent(data);
+  return assistant.content.trim().slice(0, 1600);
 }
 
 async function callWebSearch(query) {
@@ -897,6 +1037,7 @@ function exportLocalData() {
     exportedAt: new Date().toISOString(),
     app: "AI Chat",
     version: 1,
+    memory: state.memory,
     conversations: state.conversations.filter(function (conversation) {
       return conversation.messages.length > 0;
     })
@@ -943,6 +1084,14 @@ function importLocalData(event) {
 
       state.conversations = sortConversations(Array.from(byId.values()));
       state.currentConversationId = state.conversations[0].id;
+      if (parsed && parsed.memory && typeof parsed.memory.summary === "string") {
+        state.memory = {
+          summary: parsed.memory.summary,
+          updatedAt: typeof parsed.memory.updatedAt === "number" ? parsed.memory.updatedAt : Date.now(),
+          sourceMessageCount: typeof parsed.memory.sourceMessageCount === "number" ? parsed.memory.sourceMessageCount : 0
+        };
+        saveMemory();
+      }
       saveConversations();
       renderApp();
       addToast("备份已导入本机。", "success");
